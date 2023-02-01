@@ -9,70 +9,64 @@ class Checks:
         return True
 
 
-def test_component():
+def test_component(button: ft.FilledButton):
+    failed = 0
     checks = Checks()
     template_file = ft.Path("template.docx")
     data_file = ft.Path("context.csv")
     output_dir = ft.Path("output")
 
-    template_file_exists = checks.check_file_or_folder_exists(template_file)
-    data_file_exists = checks.check_file_or_folder_exists(data_file)
-    output_dir_exists = checks.check_file_or_folder_exists(output_dir)
+    def exists_text(path: ft.Path) -> ft.Row:
+        nonlocal failed
+        check_mark = ft.Icon(
+            "check_circle", color=ft.colors.GREEN_400, size=20)
+        cross_mark = ft.Icon("cancel", color=ft.colors.RED_400, size=20)
 
-    if not output_dir_exists:
-        # create the folder and log
-        output_dir.mkdir()
+        exists = checks.check_file_or_folder_exists(path)
+        if not exists:
+            failed += 1
 
-    check_mark = ft.Icon("check_circle", color=ft.colors.GREEN_400, size=25)
-    cross_mark = ft.Icon("cancel", color=ft.colors.RED_400, size=25)
-
-    def exists_text(path: str, exists: bool) -> ft.Row:
         container = ft.Container(
-            ft.Text(path),
+            ft.Text(path.__str__()),
             bgcolor=ft.colors.ON_INVERSE_SURFACE,
             border_radius=5,
             padding=ft.padding.symmetric(horizontal=5),
         )
+        mark = check_mark if exists else cross_mark
         return ft.Row([
+            mark,
             container,
             ft.Text("exists", color=ft.colors.GREEN_400) if exists else ft.Text(
                 "does not exist", color=ft.colors.RED_400)
         ])
+    column = ft.Column()
 
-    create_button = ft.OutlinedButton("Create", height=40)
+    def updated_column() -> list:
+        results = [
+            exists_text(template_file),
+            exists_text(data_file),
+            exists_text(output_dir)
+        ]
+        button.text = "Dependencies" if failed == 0 else f"Dependencies ({failed})"
+        return results
 
-    column = ft.Column([
-        ft.ListTile(
-            dense=True,
-            title=exists_text("template.docx", template_file_exists),
-            leading=check_mark if template_file_exists else cross_mark,
-            trailing=create_button if not template_file_exists else None
-        ),
-        ft.ListTile(
-            dense=True,
-            title=exists_text("context.csv", data_file_exists),
-            leading=check_mark if data_file_exists else cross_mark,
-            trailing=create_button if not data_file_exists else None
-
-        ),
-        ft.ListTile(
-            dense=True,
-            title=exists_text("output", output_dir_exists),
-            leading=check_mark if output_dir_exists else cross_mark,
-            trailing=create_button if not output_dir_exists else None
-
-        )
-    ])
+    column.controls = updated_column()
 
     def close(e):
         e.page.banner.open = False
+        e.page.update()
+
+    def refresh(e):
+        nonlocal column, failed
+        failed = 0
+        column.controls = updated_column()
         e.page.update()
 
     return ft.Banner(
         content=column,
         bgcolor=ft.colors.ON_TERTIARY,
         actions=[
-            ft.TextButton("Retry", on_click=close),
+            ft.TextButton("Retry", on_click=refresh),
             ft.TextButton("Close", on_click=close),
         ]
     )
@@ -84,17 +78,19 @@ def main(page: ft.Page):
     # change width to 200
     page.window_width = 600
 
-    page.banner = test_component()
-
-    page.banner.open = True
-
     def toggle_banner(e):
         initial = bool(e.page.banner.open)
         page.banner.open = not initial  # type: ignore
         page.update()
 
-    page.add(ft.FilledButton("Dependencies", on_click=toggle_banner,
-             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10))))
+    dependencies_btn = ft.FilledButton("Dependencies", style=ft.ButtonStyle(
+        shape=ft.RoundedRectangleBorder(radius=10)), on_click=toggle_banner)
+
+    page.banner = test_component(dependencies_btn)
+
+    page.banner.open = True
+
+    page.add(dependencies_btn)
 
 
 ft.app(target=main)
