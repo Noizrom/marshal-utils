@@ -1,6 +1,6 @@
-NAME
-pinkururu
-panda_bear
-ice_bear
-grizzly_bear
-politician_bear
+NAME,score,rating,bear,NAME,score,rating,bear,NAME,score,rating,bear,
+pinkururu,200,4.2,false,pinkururu,200,4.2,false,pinkururu,200,4.2,false,
+panda_bear,200,4.2,true,panda_bear,200,4.2,true,panda_bear,200,4.2,true,
+ice_bear,200,4.2,true,ice_bear,200,4.2,true,ice_bear,200,4.2,true,
+grizzly_bear,200,4.2,true,grizzly_bear,200,4.2,true,grizzly_bear,200,4.2,true,
+politician_bear,200,4.2,true,politician_bear,200,4.2,true,politician_bear,200,4.2,true,

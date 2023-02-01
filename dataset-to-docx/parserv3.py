@@ -1,4 +1,5 @@
 import flet as ft
+import csv
 
 
 class Checks:
@@ -72,6 +73,45 @@ def test_component(button: ft.FilledButton):
     )
 
 
+def read_context():
+    data_file = ft.Path("context.csv")
+    with data_file.open() as f:
+        reader = csv.reader(f)
+        header = next(reader)
+        rows = [row for row in reader]
+
+    lv = ft.ListView(expand=1, spacing=10, padding=20, auto_scroll=True)
+
+    for i, row in enumerate(rows, 1):
+        container = ft.Container()
+
+        text_row = [
+            ft.Text(f"{i}. ", color=ft.colors.GREEN_400,
+                    bgcolor=ft.colors.ON_INVERSE_SURFACE),
+            ft.Text(row[0])
+        ]
+        container.content = ft.Row(text_row)  # type: ignore
+        lv.controls.append(container)
+
+    return lv
+    # headers = [
+    #     ft.DataColumn(ft.Text(h)) for h in header
+    # ]
+
+    # rows_data = []
+    # for row in rows:
+    #     table_row = ft.DataRow(
+    #         cells=[ft.DataCell(ft.Text(cell)) for cell in row]
+    #     )
+    #     rows_data.append(table_row)
+
+    # return ft.DataTable(
+    #     heading_row_color=ft.colors.ON_INVERSE_SURFACE,
+    #     columns=headers,
+    #     rows=rows_data,
+    # )
+
+
 def main(page: ft.Page):
     page.title = "Parser v3"
     page.vertical_alignment = ft.MainAxisAlignment.START
@@ -86,11 +126,15 @@ def main(page: ft.Page):
     dependencies_btn = ft.FilledButton("Dependencies", style=ft.ButtonStyle(
         shape=ft.RoundedRectangleBorder(radius=10)), on_click=toggle_banner)
 
+    read_context_btn = ft.FilledButton("Read Context", style=ft.ButtonStyle(
+        shape=ft.RoundedRectangleBorder(radius=10)), on_click=toggle_banner)
+
     page.banner = test_component(dependencies_btn)
 
     page.banner.open = True
 
-    page.add(dependencies_btn)
+    page.add(ft.Row([dependencies_btn, read_context_btn]))
+    page.add(read_context())
 
 
 ft.app(target=main)
