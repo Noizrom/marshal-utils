@@ -41,7 +41,7 @@ def test_component():
 
     create_button = ft.OutlinedButton("Create", height=40)
 
-    return ft.Column([
+    column = ft.Column([
         ft.ListTile(
             dense=True,
             title=exists_text("template.docx", template_file_exists),
@@ -64,6 +64,19 @@ def test_component():
         )
     ])
 
+    def close(e):
+        e.page.banner.open = False
+        e.page.update()
+
+    return ft.Banner(
+        content=column,
+        bgcolor=ft.colors.ON_TERTIARY,
+        actions=[
+            ft.TextButton("Retry", on_click=close),
+            ft.TextButton("Close", on_click=close),
+        ]
+    )
+
 
 def main(page: ft.Page):
     page.title = "Parser v3"
@@ -71,8 +84,17 @@ def main(page: ft.Page):
     # change width to 200
     page.window_width = 600
 
-    test_container = ft.Container(test_component())
-    page.add(test_container)
+    page.banner = test_component()
+
+    page.banner.open = True
+
+    def toggle_banner(e):
+        initial = bool(e.page.banner.open)
+        page.banner.open = not initial  # type: ignore
+        page.update()
+
+    page.add(ft.FilledButton("Dependencies", on_click=toggle_banner,
+             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10))))
 
 
 ft.app(target=main)
