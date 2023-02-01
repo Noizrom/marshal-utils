@@ -1,5 +1,13 @@
+from typing import Any
 import flet as ft
 import csv
+import time
+
+from docxtpl import DocxTemplate
+
+template_file = ft.Path("template.docx")
+data_file = ft.Path("context.csv")
+output_dir = ft.Path("output")
 
 
 class Checks:
@@ -10,12 +18,9 @@ class Checks:
         return True
 
 
-def test_component(button: ft.FilledButton):
+def test_component(button: ft.OutlinedButton):
     failed = 0
     checks = Checks()
-    template_file = ft.Path("template.docx")
-    data_file = ft.Path("context.csv")
-    output_dir = ft.Path("output")
 
     def exists_text(path: ft.Path) -> ft.Row:
         nonlocal failed
@@ -73,43 +78,85 @@ def test_component(button: ft.FilledButton):
     )
 
 
-def read_context():
-    data_file = ft.Path("context.csv")
-    with data_file.open() as f:
-        reader = csv.reader(f)
-        header = next(reader)
-        rows = [row for row in reader]
+class Action:
+    def __init__(self, data: dict[str, Any]) -> None:
+        self.data = data
+        self.doc = DocxTemplate(template_file)
+        self.output = output_dir / f"{self.data['NAME']}.docx"
 
-    lv = ft.ListView(expand=1, spacing=10, padding=20, auto_scroll=True)
+    def run(self) -> None:
+        self.doc.render(self.data)
+        self.doc.save(self.output)
 
-    for i, row in enumerate(rows, 1):
-        container = ft.Container()
+    @property
+    def exists(self) -> bool:
+        return self.output.exists()
 
-        text_row = [
-            ft.Text(f"{i}. ", color=ft.colors.GREEN_400,
-                    bgcolor=ft.colors.ON_INVERSE_SURFACE),
-            ft.Text(row[0])
-        ]
-        container.content = ft.Row(text_row)  # type: ignore
-        lv.controls.append(container)
 
-    return lv
-    # headers = [
-    #     ft.DataColumn(ft.Text(h)) for h in header
-    # ]
+def content(data: dict[str, Any]):
 
-    # rows_data = []
-    # for row in rows:
-    #     table_row = ft.DataRow(
-    #         cells=[ft.DataCell(ft.Text(cell)) for cell in row]
-    #     )
-    #     rows_data.append(table_row)
+    text = ft.Text("PENDING", color=ft.colors.AMBER)
+    status = ft.Container(text,
+                          border=ft.border.all(1, ft.colors.AMBER),
+                          border_radius=5,
+                          padding=4)
 
-    # return ft.DataTable(
-    #     heading_row_color=ft.colors.ON_INVERSE_SURFACE,
-    #     columns=headers,
-    #     rows=rows_data,
-    # )
+    action = Action(data)
+    if action.exists:
+        text.value = "DONE"
+        text.color = ft.colors.GREEN_400
+        status.border = ft.border.all(1, ft.colors.GREEN_400)
+
+    def play(e):
+        action.run()
+        if action.exists:
+            text.value = "DONE"
+            text.color = ft.colors.GREEN_400
+            status.border = ft.border.all(1, ft.colors.GREEN_400)
+            e.page.update()
+
+    return ft.Row([
+        ft.Row([
+            ft.Checkbox(fill_color=ft.colors.ON_BACKGROUND,
+                        check_color=ft.colors.BACKGROUND),
+            ft.Text(data['NAME'], style=ft.TextThemeStyle.LABEL_LARGE),
+        ]),
+        status,
+    ],
+        expand=True,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,)
+
+
+class ItemsManager:
+    def __init__(self):
+        # get all the data
+        self.containers: list[ft.Container] = []
+        with data_file.open() as f:
+            reader = csv.reader(f)
+            header = next(reader)
+            rows = [row for row in reader]
+            self.data = [{header[i]: row[i]
+                          for i in range(len(header))} for row in rows]
+
+        for datum in self.data:
+            container = ft.Container()
+
+            text_row = content(datum)
+
+            container.content = ft.Card(
+                content=ft.Container(text_row, padding=10,
+                                     border_radius=ft.border_radius.all(5),
+                                     bgcolor=ft.colors.ON_SECONDARY),
+                elevation=3)
+
+            self.containers.append(container)
+
+    def run_selected(self, e):
+        for container in self.containers:
+            # type: ignore
+            checked = container.content.content.content.controls[0].checked
+            print(checked)
 
 
 def main(page: ft.Page):
@@ -118,23 +165,39 @@ def main(page: ft.Page):
     # change width to 200
     page.window_width = 600
 
+    items = ItemsManager()
+
     def toggle_banner(e):
         initial = bool(e.page.banner.open)
         page.banner.open = not initial  # type: ignore
         page.update()
 
-    dependencies_btn = ft.FilledButton("Dependencies", style=ft.ButtonStyle(
-        shape=ft.RoundedRectangleBorder(radius=10)), on_click=toggle_banner)
+    dependencies_btn = ft.OutlinedButton("Dependencies", style=ft.ButtonStyle(
+        elevation=10,
+        shape=ft.RoundedRectangleBorder(radius=5)), on_click=toggle_banner, height=28,
+        icon="info")
 
-    read_context_btn = ft.FilledButton("Read Context", style=ft.ButtonStyle(
-        shape=ft.RoundedRectangleBorder(radius=10)), on_click=toggle_banner)
+    delete_all_btn = ft.OutlinedButton("Delete All", style=ft.ButtonStyle(
+        shape=ft.RoundedRectangleBorder(radius=5)), on_click=toggle_banner, height=28)
 
-    page.banner = test_component(dependencies_btn)
+    rerun_all_btn = ft.OutlinedButton("Rerun All", style=ft.ButtonStyle(
+        shape=ft.RoundedRectangleBorder(radius=5)), on_click=toggle_banner, height=28)
+
+    run_selected_btn = ft.OutlinedButton("Run Selected", style=ft.ButtonStyle(
+        shape=ft.RoundedRectangleBorder(radius=5)),
+        on_click=items.run_selected, height=28)
+
+    page.banner = test_component(dependencies_btn)  # type: ignore
 
     page.banner.open = True
 
-    page.add(ft.Row([dependencies_btn, read_context_btn]))
-    page.add(read_context())
+    page.add(ft.Row([dependencies_btn, delete_all_btn,
+             rerun_all_btn, run_selected_btn]))
+
+    lv = ft.ListView(expand=1, spacing=2, padding=8, auto_scroll=True)
+    lv.controls = items.containers
+
+    page.add(lv)
 
 
 ft.app(target=main)
