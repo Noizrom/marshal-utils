@@ -1,7 +1,8 @@
-from typing import Any
+from typing import Any, Generator
 import flet as ft
 import csv
-import time
+import uuid
+
 
 from docxtpl import DocxTemplate
 
@@ -10,51 +11,50 @@ data_file = ft.Path("context.csv")
 output_dir = ft.Path("output")
 
 
-class Checks:
-    def check_file_or_folder_exists(self, path: ft.Path) -> bool:
-        """Check if the files exists"""
-        if not path.exists():
-            return False
-        return True
+class DependenciesCheck:
+    def __init__(self):
+        self.failed = 0
+        self.path_exists: dict[ft.Path, bool] = dict()
+        self.run_check()
+
+    def run_check(self):
+        self.failed = 0
+        for path in [template_file, data_file, output_dir]:
+            exists = True
+            if not path.exists():
+                self.failed += 1
+                exists = False
+            self.path_exists[path] = exists
 
 
-def test_component(button: ft.OutlinedButton):
-    failed = 0
-    checks = Checks()
+def banner(button: ft.OutlinedButton, checks: DependenciesCheck):
+    def generate_rows():
+        for path, exists in checks.path_exists.items():
+            check_mark = ft.Icon(
+                "check_circle", color=ft.colors.GREEN_400, size=20)
+            cross_mark = ft.Icon("cancel", color=ft.colors.RED_400, size=20)
 
-    def exists_text(path: ft.Path) -> ft.Row:
-        nonlocal failed
-        check_mark = ft.Icon(
-            "check_circle", color=ft.colors.GREEN_400, size=20)
-        cross_mark = ft.Icon("cancel", color=ft.colors.RED_400, size=20)
+            container = ft.Container(
+                ft.Text(path.__str__()),
+                bgcolor=ft.colors.ON_INVERSE_SURFACE,
+                border_radius=5,
+                padding=ft.padding.symmetric(horizontal=5),
+            )
+            mark = check_mark if exists else cross_mark
 
-        exists = checks.check_file_or_folder_exists(path)
-        if not exists:
-            failed += 1
+            yield ft.Row([
+                mark,
+                container,
+                ft.Text("exists", color=ft.colors.GREEN_400) if exists else ft.Text(
+                    "does not exist", color=ft.colors.RED_400)
+            ])
 
-        container = ft.Container(
-            ft.Text(path.__str__()),
-            bgcolor=ft.colors.ON_INVERSE_SURFACE,
-            border_radius=5,
-            padding=ft.padding.symmetric(horizontal=5),
-        )
-        mark = check_mark if exists else cross_mark
-        return ft.Row([
-            mark,
-            container,
-            ft.Text("exists", color=ft.colors.GREEN_400) if exists else ft.Text(
-                "does not exist", color=ft.colors.RED_400)
-        ])
     column = ft.Column()
 
     def updated_column() -> list:
-        results = [
-            exists_text(template_file),
-            exists_text(data_file),
-            exists_text(output_dir)
-        ]
-        button.text = "Dependencies" if failed == 0 else f"Dependencies ({failed})"
-        return results
+        results = generate_rows()
+        button.text = "Dependencies" if checks.failed == 0 else f"Dependencies ({checks.failed})"
+        return list(results)
 
     column.controls = updated_column()
 
@@ -63,9 +63,9 @@ def test_component(button: ft.OutlinedButton):
         e.page.update()
 
     def refresh(e):
-        nonlocal column, failed
-        failed = 0
+        nonlocal column
         column.controls = updated_column()
+        checks.run_check()
         e.page.update()
 
     return ft.Banner(
@@ -93,7 +93,7 @@ class Action:
         return self.output.exists()
 
 
-def content(data: dict[str, Any]):
+def content(data: dict[str, Any], checkbox_ref: ft.Ref[ft.Checkbox]):
 
     text = ft.Text("PENDING", color=ft.colors.AMBER)
     status = ft.Container(text,
@@ -102,6 +102,7 @@ def content(data: dict[str, Any]):
                           padding=4)
 
     action = Action(data)
+
     if action.exists:
         text.value = "DONE"
         text.color = ft.colors.GREEN_400
@@ -117,7 +118,7 @@ def content(data: dict[str, Any]):
 
     return ft.Row([
         ft.Row([
-            ft.Checkbox(fill_color=ft.colors.ON_BACKGROUND,
+            ft.Checkbox(ref=checkbox_ref, fill_color=ft.colors.ON_BACKGROUND,
                         check_color=ft.colors.BACKGROUND),
             ft.Text(data['NAME'], style=ft.TextThemeStyle.LABEL_LARGE),
         ]),
@@ -131,7 +132,9 @@ def content(data: dict[str, Any]):
 class ItemsManager:
     def __init__(self):
         # get all the data
-        self.containers: list[ft.Container] = []
+        self.references: dict[uuid.UUID, ft.Ref[ft.Checkbox]] = dict()
+        self.containers: list[ft.Container] = list()
+
         with data_file.open() as f:
             reader = csv.reader(f)
             header = next(reader)
@@ -140,9 +143,11 @@ class ItemsManager:
                           for i in range(len(header))} for row in rows]
 
         for datum in self.data:
+            row_id = uuid.uuid4()
             container = ft.Container()
 
-            text_row = content(datum)
+            checkbox_ref = ft.Ref[ft.Checkbox]()
+            text_row = content(datum, checkbox_ref)
 
             container.content = ft.Card(
                 content=ft.Container(text_row, padding=10,
@@ -151,12 +156,23 @@ class ItemsManager:
                 elevation=3)
 
             self.containers.append(container)
+            self.references[row_id] = checkbox_ref
+
+    def check_all(self, e):
+        for container in self.references.values():
+            container.current.value = True
+        e.page.update()
+
+    def unchecked_all(self, e):
+        for container in self.references.values():
+            container.current.value = False
+        e.page.update()
 
     def run_selected(self, e):
-        for container in self.containers:
-            # type: ignore
-            checked = container.content.content.content.controls[0].checked
-            print(checked)
+        for container in self.references.items():
+            ...
+            # print("ID: ", container[0])
+            # print("REF: ", container[1].current.value)
 
 
 def main(page: ft.Page):
@@ -166,6 +182,7 @@ def main(page: ft.Page):
     page.window_width = 600
 
     items = ItemsManager()
+    checks = DependenciesCheck()
 
     def toggle_banner(e):
         initial = bool(e.page.banner.open)
@@ -187,14 +204,21 @@ def main(page: ft.Page):
         shape=ft.RoundedRectangleBorder(radius=5)),
         on_click=items.run_selected, height=28)
 
-    page.banner = test_component(dependencies_btn)  # type: ignore
+    check_all_btn = ft.OutlinedButton("Check All", style=ft.ButtonStyle(
+        shape=ft.RoundedRectangleBorder(radius=5)),
+        on_click=items.check_all, height=28)
 
-    page.banner.open = True
+    unchecked_all_btn = ft.OutlinedButton("Uncheck All", style=ft.ButtonStyle(
+        shape=ft.RoundedRectangleBorder(radius=5)),
+        on_click=items.unchecked_all, height=28)
+
+    page.banner = banner(dependencies_btn, checks=checks)
+    page.banner.open = True if checks.failed > 0 else False
 
     page.add(ft.Row([dependencies_btn, delete_all_btn,
-             rerun_all_btn, run_selected_btn]))
+             rerun_all_btn, run_selected_btn, check_all_btn, unchecked_all_btn]))
 
-    lv = ft.ListView(expand=1, spacing=2, padding=8, auto_scroll=True)
+    lv = ft.ListView(expand=1, spacing=2, padding=8, auto_scroll=False)
     lv.controls = items.containers
 
     page.add(lv)
