@@ -2,6 +2,9 @@
 # output files
 output/
 
+# link files
+*.lnk
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
