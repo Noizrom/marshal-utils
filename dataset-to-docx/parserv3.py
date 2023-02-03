@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, TypeAlias
 
 import flet as ft
 import csv
@@ -8,6 +8,9 @@ from docxtpl import DocxTemplate
 template_file = ft.Path("template.docx")
 data_file = ft.Path("context.csv")
 output_dir = ft.Path("output")
+
+# this is the basis for the filename
+unique_col = 'NAME'
 
 
 class DependenciesCheck:
@@ -84,7 +87,7 @@ class Action:
     def __init__(self, data: dict[str, Any]) -> None:
         self.data = data
         self.doc = DocxTemplate(template_file)
-        self.output = output_dir / f"{self.data['NAME']}.docx"
+        self.output = output_dir / f"{self.data[unique_col]}.docx"
 
     def run(self) -> None:
         self.doc.render(self.data)
@@ -95,46 +98,20 @@ class Action:
         return self.output.exists()
 
 
-def content(data: dict[str, Any], checkbox_ref: ft.Ref[ft.Checkbox]):
-
-    text = ft.Text("PENDING", color=ft.colors.AMBER)
-    status = ft.Container(text,
-                          border=ft.border.all(1, ft.colors.AMBER),
-                          border_radius=5,
-                          padding=4)
-
-    action = Action(data)
-
-    if action.exists:
-        text.value = "DONE"
-        text.color = ft.colors.GREEN_400
-        status.border = ft.border.all(1, ft.colors.GREEN_400)
-
-    def play(e):
-        if action.exists:
-            text.value = "DONE"
-            text.color = ft.colors.GREEN_400
-            status.border = ft.border.all(1, ft.colors.GREEN_400)
-            e.page.update()
-
-    return ft.Row([
-        ft.Row([
-            ft.Checkbox(ref=checkbox_ref, fill_color=ft.colors.ON_BACKGROUND,
-                        check_color=ft.colors.BACKGROUND),
-            ft.Text(data['NAME'], style=ft.TextThemeStyle.LABEL_LARGE),
-        ]),
-        status,
-    ],
-        expand=True,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,)
+ref_tuple: TypeAlias = tuple[ft.Ref[ft.Checkbox],
+                             dict, ft.Ref[ft.Text], ft.Ref[ft.Container]]
 
 
 class ItemsManager:
-    def __init__(self):
+    def __init__(self, listview: ft.ListView):
+        self.lv = listview
+
         # get all the data
+        self.refresh_dataset()
+
+    def refresh_dataset(self, e=None):
         self.references: dict[uuid.UUID,
-                              tuple[ft.Ref[ft.Checkbox], dict]] = dict()
+                              ref_tuple] = dict()
         self.containers: list[ft.Container] = list()
 
         with data_file.open() as f:
@@ -149,7 +126,10 @@ class ItemsManager:
             container = ft.Container()
 
             checkbox_ref = ft.Ref[ft.Checkbox]()
-            text_row = content(datum, checkbox_ref)
+            status_ref = ft.Ref[ft.Text]()
+            container_ref = ft.Ref[ft.Container]()
+            text_row = self._row_content(
+                datum, checkbox_ref, status_ref, container_ref)
 
             container.content = ft.Card(
                 content=ft.Container(text_row, padding=10,
@@ -158,7 +138,51 @@ class ItemsManager:
                 elevation=3)
 
             self.containers.append(container)
-            self.references[row_id] = (checkbox_ref, datum)
+            self.references[row_id] = (
+                checkbox_ref, datum, status_ref, container_ref)
+
+        self.lv.controls = self.containers
+
+        if e:
+            e.page.update()
+
+    def _row_content(self, data: dict[str, Any],
+                     checkbox_ref: ft.Ref[ft.Checkbox],
+                     text_ref: ft.Ref[ft.Text],
+                     container_ref: ft.Ref[ft.Container]) -> ft.Container:
+
+        text = ft.Text("PENDING", color=ft.colors.AMBER, ref=text_ref)
+        status = ft.Container(text,
+                              ref=container_ref,
+                              border=ft.border.all(1, ft.colors.AMBER),
+                              border_radius=5,
+                              padding=4)
+
+        action = Action(data)
+
+        if action.exists:
+            text.value = "DONE"
+            text.color = ft.colors.GREEN_400
+            status.border = ft.border.all(1, ft.colors.GREEN_400)
+
+        def play(e):
+            if action.exists:
+                text.value = "DONE"
+                text.color = ft.colors.GREEN_400
+                status.border = ft.border.all(1, ft.colors.GREEN_400)
+                e.page.update()
+
+        return ft.Row([
+            ft.Row([
+                ft.Checkbox(ref=checkbox_ref, fill_color=ft.colors.ON_BACKGROUND,
+                            check_color=ft.colors.BACKGROUND),
+                ft.Text(data[unique_col], style=ft.TextThemeStyle.LABEL_LARGE),
+            ]),
+            status,
+        ],
+            expand=True,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,)
 
     def check_all(self, e):
         for container in self.references.values():
@@ -171,11 +195,16 @@ class ItemsManager:
         e.page.update()
 
     def run_selected(self, e):
-        for key, (ref, data) in self.references.items():
+        for key, (ref, data, text_ref, container_ref) in self.references.items():
             if ref.current.value:
-                print("Running ID: ", key, ' ', data['NAME'])
+                print("Running ID: ", key, ' ', data[unique_col])
                 action = Action(data)
                 action.run()
+                text = text_ref
+                text.current.value = "DONE"
+                text.current.color = ft.colors.GREEN_400
+                container_ref.current.border = ft.border.all(
+                    1, ft.colors.GREEN_400)
                 e.page.update()
 
 
@@ -185,48 +214,47 @@ def main(page: ft.Page):
     # change width to 200
     page.window_width = 600
 
-    items = ItemsManager()
+    lv = ft.ListView(expand=1, spacing=2, padding=8, auto_scroll=False)
+
+    items = ItemsManager(lv)
+
     checks = DependenciesCheck()
 
     btn_col = {
-        'sm': 6, 'md': 4, 'lg': 4, 'xl': 2, 'xs': 6}  # type: ignore
+        'sm': 6, 'md': 4, 'lg': 4, 'xl': 2, 'xs': 6}
 
     def toggle_banner(e):
         initial = bool(e.page.banner.open)
-        page.banner.open = not initial  # type: ignore
+        page.banner.open = not initial
         page.update()
 
-    dependencies_btn = ft.OutlinedButton("Dependencies", col=btn_col, style=ft.ButtonStyle(  # type: ignore
-        elevation=10,
-        shape=ft.RoundedRectangleBorder(radius=5)), on_click=toggle_banner, height=28,
-    )
+    dependencies_btn = ft.OutlinedButton("Dependencies", col=btn_col,
+                                         style=ft.ButtonStyle(
+                                             elevation=10,
+                                             shape=ft.RoundedRectangleBorder(radius=5)),
+                                         on_click=toggle_banner, height=28,
+                                         )
 
-    delete_all_btn = ft.OutlinedButton("Delete All", col=btn_col, style=ft.ButtonStyle(  # type: ignore
-        shape=ft.RoundedRectangleBorder(radius=5)), on_click=toggle_banner, height=28)
+    refresh = ft.OutlinedButton("refresh dataset", col=btn_col,
+                                style=ft.ButtonStyle(
+                                    shape=ft.RoundedRectangleBorder(radius=5)),
+                                on_click=items.refresh_dataset, height=28)
 
-    rerun_all_btn = ft.OutlinedButton("Rerun All", col=btn_col, style=ft.ButtonStyle(  # type: ignore
-        shape=ft.RoundedRectangleBorder(radius=5)), on_click=toggle_banner, height=28)
+    check_all_btn = ft.OutlinedButton("Check All", col=btn_col,
+                                      style=ft.ButtonStyle(
+                                          shape=ft.RoundedRectangleBorder(radius=5)),
+                                      on_click=items.check_all, height=28)
 
-    run_selected_btn = ft.OutlinedButton("Run Selected", col=btn_col, style=ft.ButtonStyle(  # type: ignore
-        shape=ft.RoundedRectangleBorder(radius=5)),
-        on_click=items.run_selected, height=28)
-
-    check_all_btn = ft.OutlinedButton("Check All", col=btn_col, style=ft.ButtonStyle(  # type: ignore
-        shape=ft.RoundedRectangleBorder(radius=5)),
-        on_click=items.check_all, height=28)
-
-    unchecked_all_btn = ft.OutlinedButton("Uncheck All", col=btn_col, style=ft.ButtonStyle(  # type: ignore
-        shape=ft.RoundedRectangleBorder(radius=5)),
-        on_click=items.unchecked_all, height=28)
+    unchecked_all_btn = ft.OutlinedButton("Uncheck All", col=btn_col,
+                                          style=ft.ButtonStyle(
+                                              shape=ft.RoundedRectangleBorder(radius=5)),
+                                          on_click=items.unchecked_all, height=28)
 
     page.banner = banner(dependencies_btn, checks=checks)
     page.banner.open = True if checks.failed > 0 else False
 
-    page.add(ft.ResponsiveRow([dependencies_btn, delete_all_btn,
-             rerun_all_btn, run_selected_btn, check_all_btn, unchecked_all_btn], col=4))
-
-    lv = ft.ListView(expand=1, spacing=2, padding=8, auto_scroll=False)
-    lv.controls = items.containers
+    page.add(ft.ResponsiveRow(
+        [dependencies_btn, refresh, check_all_btn, unchecked_all_btn], col=4))
 
     page.add(lv)
 
